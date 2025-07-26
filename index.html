@@ -15,7 +15,8 @@
         .card { background-color: white; border-radius: 0.75rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); transition: box-shadow 0.3s ease-in-out; }
         .card:hover { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1); }
         .btn { padding: 0.75rem 1.5rem; border-radius: 0.5rem; font-weight: 600; color: white; transition: background-color 0.3s, transform 0.2s; cursor: pointer; text-align: center; }
-        .btn:hover { transform: translateY(-2px); }
+        .btn:hover:not(:disabled) { transform: translateY(-2px); }
+        .btn:disabled { background-color: #9ca3af; cursor: not-allowed; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -29,11 +30,11 @@
                 <div class="card p-6">
                     <h2 class="text-xl font-bold mb-4">Inventario de Alimento</h2>
                     <div class="text-center"><p class="text-6xl font-bold text-emerald-600" id="inventory-display">0</p><p class="text-gray-500">Bultos disponibles</p></div>
-                    <div class="mt-6"><label for="add-stock" class="font-semibold block mb-2">Añadir Bultos:</label><div class="flex"><input type="number" id="add-stock" class="w-full p-3 border border-gray-300 rounded-l-md focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Ej: 10"><button id="add-stock-btn" class="btn bg-emerald-600 hover:bg-emerald-700 rounded-l-none">Añadir</button></div></div>
+                    <div class="mt-6"><label for="add-stock" class="font-semibold block mb-2">Añadir Bultos:</label><div class="flex"><input type="number" id="add-stock" class="w-full p-3 border border-gray-300 rounded-l-md focus:ring-2 focus:ring-emerald-500 focus:outline-none" placeholder="Ej: 10"><button id="add-stock-btn" class="btn bg-emerald-600 hover:bg-emerald-700 rounded-l-none" disabled>Añadir</button></div></div>
                 </div>
                 <div class="card p-6">
                     <h2 class="text-xl font-bold mb-4">Acciones</h2>
-                    <button id="export-excel-btn" class="btn bg-blue-600 hover:bg-blue-700 w-full">Descargar Reporte en Excel</button>
+                    <button id="export-excel-btn" class="btn bg-blue-600 hover:bg-blue-700 w-full" disabled>Descargar Reporte en Excel</button>
                 </div>
             </div>
             <div class="lg:col-span-2 space-y-6">
@@ -45,7 +46,7 @@
                         <div><label for="mortality" class="font-semibold">Mortalidad (aves)</label><input type="number" id="mortality" class="mt-1 w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500" placeholder="Ej: 5"></div>
                         <div><label for="consumption" class="font-semibold">Consumo (bultos)</label><input type="number" id="consumption" class="mt-1 w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-emerald-500" placeholder="Ej: 2"></div>
                     </div>
-                    <button id="save-record-btn" class="btn bg-emerald-600 hover:bg-emerald-700 mt-6 w-full">Guardar Registro del Día</button>
+                    <button id="save-record-btn" class="btn bg-emerald-600 hover:bg-emerald-700 mt-6 w-full" disabled>Guardar Registro del Día</button>
                 </div>
                 <div class="card p-6">
                     <h2 class="text-xl font-bold mb-4">Historial de Registros</h2>
@@ -89,7 +90,20 @@
         async function saveRecord() { if (!userId) { showMessage('Error: ID de usuario no disponible.', 'error'); return; } const record = { date: dateInput.value, avg_weight_g: parseInt(avgWeightInput.value, 10), mortality_count: parseInt(mortalityInput.value, 10), food_consumed_bags: parseInt(consumptionInput.value, 10), }; if (!record.date || isNaN(record.avg_weight_g) || isNaN(record.mortality_count) || isNaN(record.food_consumed_bags)) { showMessage('Todos los campos son obligatorios.', 'error'); return; } if (record.avg_weight_g < 0 || record.mortality_count < 0 || record.food_consumed_bags < 0) { showMessage('Los valores no pueden ser negativos.', 'error'); return; } const inventoryRef = doc(db, `artifacts/${appId}/users/${userId}/shed_inventory/main`); const recordRef = doc(db, `artifacts/${appId}/users/${userId}/shed_records`, record.date); try { await runTransaction(db, async (transaction) => { const inventoryDoc = await transaction.get(inventoryRef); const recordDoc = await transaction.get(recordRef); if (recordDoc.exists()) throw new Error(`Ya existe un registro para la fecha ${record.date}.`); const currentStock = inventoryDoc.exists() ? inventoryDoc.data().current_bags : 0; if (currentStock < record.food_consumed_bags) throw new Error('No hay suficiente alimento en el inventario.'); transaction.update(inventoryRef, { current_bags: currentStock - record.food_consumed_bags }); transaction.set(recordRef, { ...record, createdAt: serverTimestamp() }); }); showMessage('Registro guardado y inventario actualizado.', 'success'); avgWeightInput.value = ''; mortalityInput.value = ''; consumptionInput.value = ''; } catch (error) { console.error("Error al guardar registro:", error); showMessage(error.message, 'error'); } }
         async function deleteRecord(recordId, consumption) { if (!userId || !recordId) return; const recordRef = doc(db, `artifacts/${appId}/users/${userId}/shed_records`, recordId); const inventoryRef = doc(db, `artifacts/${appId}/users/${userId}/shed_inventory/main`); try { await runTransaction(db, async (transaction) => { const inventoryDoc = await transaction.get(inventoryRef); if (inventoryDoc.exists()) { transaction.update(inventoryRef, { current_bags: (inventoryDoc.data().current_bags || 0) + parseInt(consumption, 10) }); } transaction.delete(recordRef); }); showMessage('Registro eliminado y stock devuelto al inventario.', 'success'); } catch (error) { console.error("Error al eliminar el registro: ", error); showMessage('No se pudo eliminar el registro.', 'error'); } }
         function exportToExcel() { if (recordsData.length === 0) { showMessage('No hay datos para exportar.', 'error'); return; } const dataToExport = recordsData.map(rec => ({ 'Fecha': rec.date, 'Peso Promedio (g)': rec.avg_weight_g, 'Mortalidad (aves)': rec.mortality_count, 'Consumo de Alimento (bultos)': rec.food_consumed_bags })); const worksheet = XLSX.utils.json_to_sheet(dataToExport); const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, worksheet, "RegistrosGalpon"); XLSX.writeFile(workbook, `Reporte_Galpon_${new Date().toISOString().slice(0,10)}.xlsx`); showMessage('Exportando a Excel...', 'success'); }
-        function setupListenersAndData(currentUserId) { userId = currentUserId; sessionIdDisplay.textContent = userId; const inventoryRef = doc(db, `artifacts/${appId}/users/${userId}/shed_inventory/main`); onSnapshot(inventoryRef, (doc) => { inventoryDisplay.textContent = doc.exists() ? doc.data().current_bags : 0; }); const recordsQuery = query(collection(db, `artifacts/${appId}/users/${userId}/shed_records`)); onSnapshot(recordsQuery, (querySnapshot) => { const records = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); renderTable(records); }); }
+        function setupListenersAndData(currentUserId) {
+            userId = currentUserId;
+            sessionIdDisplay.textContent = userId;
+
+            // Habilitar botones ahora que la conexión está lista
+            addStockBtn.disabled = false;
+            saveRecordBtn.disabled = false;
+            exportExcelBtn.disabled = false;
+
+            const inventoryRef = doc(db, `artifacts/${appId}/users/${userId}/shed_inventory/main`);
+            onSnapshot(inventoryRef, (doc) => { inventoryDisplay.textContent = doc.exists() ? doc.data().current_bags : 0; });
+            const recordsQuery = query(collection(db, `artifacts/${appId}/users/${userId}/shed_records`));
+            onSnapshot(recordsQuery, (querySnapshot) => { const records = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); renderTable(records); });
+        }
         window.onload = () => { dateInput.value = new Date().toISOString().slice(0, 10); const urlParams = new URLSearchParams(window.location.search); const userIdFromUrl = urlParams.get('user'); if (userIdFromUrl) { setupListenersAndData(userIdFromUrl); } else { onAuthStateChanged(auth, (user) => { if (user) { setupListenersAndData(user.uid); } }); (async () => { try { await signInAnonymously(auth); } catch (error) { console.error("Error de autenticación:", error); } })(); } addStockBtn.addEventListener('click', addStock); saveRecordBtn.addEventListener('click', saveRecord); exportExcelBtn.addEventListener('click', exportToExcel); recordsTableBody.addEventListener('click', (e) => { if (e.target && e.target.matches('button[data-id]')) { const recordId = e.target.getAttribute('data-id'); const consumption = e.target.getAttribute('data-consumption'); if (confirm(`¿Estás seguro de que quieres eliminar el registro del ${recordId}?`)) { deleteRecord(recordId, consumption); } } }); if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./service-worker.js').then(reg => console.log('Service Worker registrado!', reg)).catch(err => console.log('Error registrando Service Worker', err)); } };
     </script>
 </body>
